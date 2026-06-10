@@ -1,47 +1,54 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
-import { ArrowRight, Check, Copy, Sparkles } from "lucide-react";
+import {
+  Check,
+  Copy,
+  FileText,
+  MessageSquare,
+  PencilLine,
+  Smile,
+  Sparkles,
+  Tag,
+  Target,
+  Users,
+} from "lucide-react";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Promptsmith — craft prompts with intent" },
-      { name: "description", content: "An editorial prompt builder that turns a vague idea into a structured, production-ready brief." },
-      { property: "og:title", content: "Promptsmith — craft prompts with intent" },
-      { property: "og:description", content: "An editorial prompt builder that turns a vague idea into a structured, production-ready brief." },
-    ],
-    links: [
-      { rel: "preconnect", href: "https://fonts.googleapis.com" },
-      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      {
-        rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap",
-      },
+      { title: "Prompt Builder" },
+      { name: "description", content: "Build clear, structured AI prompts in a few simple steps." },
+      { property: "og:title", content: "Prompt Builder" },
+      { property: "og:description", content: "Build clear, structured AI prompts in a few simple steps." },
     ],
   }),
   component: PromptBuilderPage,
 });
 
-const STYLES = ["Step-by-step", "Detailed", "Bullet points", "Creative"] as const;
-const TONES = ["Simple", "Friendly", "Professional", "Persuasive", "Playful"] as const;
+const STYLES = ["Short", "Detailed", "Bullet Points", "Creative"] as const;
+const TONES = ["Simple", "Friendly", "Professional", "Persuasive", "Fun"] as const;
 
 type Style = (typeof STYLES)[number];
 type Tone = (typeof TONES)[number];
 
-function buildPrompt(d: {
+type FormData = {
   goal: string;
   subject: string;
   audience: string;
-  style: Style;
-  tone: Tone;
+  styles: Style[];
+  tones: Tone[];
   extra: string;
-}) {
+};
+
+function buildStructuredPrompt(d: FormData) {
   const goal = d.goal.trim() || "[your request]";
   const subject = d.subject.trim() || "[topic]";
   const audience = d.audience.trim() || "[audience]";
   const extra = d.extra.trim();
+  const styleStr = d.styles.length ? d.styles.join(", ") : "Detailed";
+  const toneStr = d.tones.length ? d.tones.join(", ") : "Professional";
 
-  return `Act as an expert who gives practical, correct, and production-ready guidance.
+  return `Act as a senior software engineer who gives practical, correct, and production-ready guidance.
 
 Your task is to help me with the following request:
 ${goal}.
@@ -53,10 +60,10 @@ The output is intended for:
 ${audience}.
 
 Write the answer in this style:
-${d.style}.
+${styleStr}.
 
 Use this tone:
-${d.tone}.
+${toneStr}.
 ${extra ? `\nAdditional instructions:\n${extra}.\n` : ""}
 Please create a high-quality final answer that:
 • Directly solves the request
@@ -70,39 +77,49 @@ Please create a high-quality final answer that:
 Return only the final answer.`;
 }
 
-const STEPS: Array<{ key: "goal" | "subject" | "audience" | "style" | "tone" | "extra"; kicker: string; label: string }> = [
-  { key: "goal", kicker: "I", label: "What do you want to create?" },
-  { key: "subject", kicker: "II", label: "What is the topic or subject?" },
-  { key: "audience", kicker: "III", label: "Who is this for?" },
-  { key: "style", kicker: "IV", label: "How should the answer be written?" },
-  { key: "tone", kicker: "V", label: "Tone of voice" },
-  { key: "extra", kicker: "VI", label: "Extra instructions" },
-];
+function buildNaturalPreview(d: FormData) {
+  const goal = d.goal.trim();
+  const subject = d.subject.trim();
+  const audience = d.audience.trim();
+  const extra = d.extra.trim();
+  const styleStr = d.styles.length ? d.styles.join(" and ").toLowerCase() : "";
+  const toneStr = d.tones.length ? d.tones.join(" and ").toLowerCase() : "";
+
+  if (!goal && !subject && !audience) {
+    return "Fill in the steps on the left to see your prompt take shape here.";
+  }
+
+  const toneStyle = [toneStr, styleStr].filter(Boolean).join(" and ");
+  const pieces: string[] = [];
+  pieces.push(
+    `Create a ${toneStyle || "clear"} ${goal || "[request]"}${subject ? ` about ${subject.toLowerCase()}` : ""}.`,
+  );
+  if (audience) pieces.push(`Speak to ${audience.toLowerCase()}.`);
+  if (styleStr) pieces.push(`Keep it ${styleStr}.`);
+  if (extra) pieces.push(`${extra}.`);
+  return pieces.join(" ");
+}
 
 function PromptBuilderPage() {
   const [goal, setGoal] = useState("");
   const [subject, setSubject] = useState("");
   const [audience, setAudience] = useState("");
-  const [style, setStyle] = useState<Style>("Step-by-step");
-  const [tone, setTone] = useState<Tone>("Professional");
+  const [styles, setStyles] = useState<Style[]>(["Short", "Creative"]);
+  const [tones, setTones] = useState<Tone[]>(["Friendly", "Persuasive"]);
   const [extra, setExtra] = useState("");
   const [generated, setGenerated] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const preview = useMemo(
-    () => buildPrompt({ goal, subject, audience, style, tone, extra }),
-    [goal, subject, audience, style, tone, extra],
-  );
+  const data: FormData = { goal, subject, audience, styles, tones, extra };
+  const natural = useMemo(() => buildNaturalPreview(data), [data]);
 
-  const filled = [goal, subject, audience, extra].filter((v) => v.trim().length > 0).length + 2; // style+tone always set
-  const progress = Math.round((filled / 6) * 100);
+  const toggle = <T,>(arr: T[], v: T, setter: (next: T[]) => void) => {
+    setter(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+  };
 
   const handleGenerate = () => {
-    setGenerated(preview);
+    setGenerated(buildStructuredPrompt(data));
     setCopied(false);
-    if (typeof document !== "undefined") {
-      document.getElementById("result")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
   };
 
   const handleCopy = async () => {
@@ -113,263 +130,208 @@ function PromptBuilderPage() {
   };
 
   return (
-    <main
-      className="min-h-screen bg-[#0d0c0a] text-stone-200 antialiased"
-      style={{ fontFamily: "Inter, system-ui, sans-serif" }}
-    >
-      {/* grain + glow background */}
-      <div
-        aria-hidden
-        className="pointer-events-none fixed inset-0 opacity-[0.07] mix-blend-overlay"
-        style={{
-          backgroundImage:
-            "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.6'/></svg>\")",
-        }}
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none fixed -top-40 left-1/2 h-[520px] w-[820px] -translate-x-1/2 rounded-full blur-3xl"
-        style={{ background: "radial-gradient(closest-side, rgba(234,179,8,0.18), transparent 70%)" }}
-      />
-
-      <div className="relative mx-auto max-w-6xl px-6 pb-24 pt-10 sm:px-10">
-        {/* topbar */}
-        <div className="flex items-center justify-between text-xs uppercase tracking-[0.22em] text-stone-500">
-          <span className="flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-            Promptsmith
-          </span>
-          <span className="hidden sm:inline">No. 01 — The Builder</span>
-        </div>
-
-        {/* hero */}
-        <header className="mt-16 grid gap-8 border-b border-stone-800/70 pb-12 md:grid-cols-12 md:items-end">
-          <div className="md:col-span-8">
-            <p className="text-xs uppercase tracking-[0.3em] text-amber-400/80">A craft for prompts</p>
-            <h1
-              className="mt-4 text-5xl leading-[0.95] tracking-tight text-stone-50 sm:text-6xl md:text-7xl"
-              style={{ fontFamily: "Fraunces, serif", fontWeight: 400, fontStyle: "italic" }}
-            >
-              Write prompts
-              <br />
-              <span className="not-italic font-light text-stone-400">that actually</span>{" "}
-              <span className="text-amber-300">work.</span>
-            </h1>
-          </div>
-          <p className="text-sm leading-relaxed text-stone-400 md:col-span-4">
-            Six small decisions. One structured brief. Built for people who want the model to do the right
-            thing on the first try — no incantations required.
+    <main className="min-h-screen bg-slate-50 px-4 py-10 sm:px-8">
+      <div className="mx-auto grid max-w-7xl gap-6 lg:grid-cols-2">
+        {/* ============ LEFT: BUILDER ============ */}
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          <h2 className="text-2xl font-bold text-slate-900">Prompt Builder</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Describe what you need in a few simple steps.
           </p>
-        </header>
 
-        {/* meta strip */}
-        <div className="mt-6 flex flex-wrap items-center gap-x-8 gap-y-2 text-[11px] uppercase tracking-[0.22em] text-stone-500">
-          <span>Step {filled}/6</span>
-          <div className="relative h-px flex-1 min-w-[120px] bg-stone-800">
-            <div
-              className="absolute inset-y-0 left-0 bg-amber-400 transition-all duration-500"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <span className="text-stone-500">{progress}% drafted</span>
-        </div>
+          <div className="mt-8 space-y-6">
+            <Field n={1} label="What do you want to create?">
+              <input
+                value={goal}
+                onChange={(e) => setGoal(e.target.value)}
+                placeholder="Facebook ad for my bakery"
+                className={inputCls}
+              />
+            </Field>
 
-        {/* main grid */}
-        <div className="mt-12 grid gap-12 lg:grid-cols-12">
-          {/* Builder */}
-          <section className="lg:col-span-7">
-            <div className="space-y-10">
-              <FieldRow
-                kicker={STEPS[0].kicker}
-                label={STEPS[0].label}
-                hint="A short phrase. The verb matters more than the noun."
-              >
-                <BareInput
-                  value={goal}
-                  onChange={setGoal}
-                  placeholder="Fix backend API error"
-                />
-              </FieldRow>
+            <Field n={2} label="What is the topic or subject?">
+              <input
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Fresh bakery products"
+                className={inputCls}
+              />
+            </Field>
 
-              <FieldRow
-                kicker={STEPS[1].kicker}
-                label={STEPS[1].label}
-                hint="Be specific. Mention the stack, the file, the symptom."
-              >
-                <BareInput
-                  value={subject}
-                  onChange={setSubject}
-                  placeholder="Node.js login route returning 500 on valid creds"
-                />
-              </FieldRow>
+            <Field n={3} label="Who is this for?">
+              <input
+                value={audience}
+                onChange={(e) => setAudience(e.target.value)}
+                placeholder="Local families near Kathmandu"
+                className={inputCls}
+              />
+            </Field>
 
-              <FieldRow
-                kicker={STEPS[2].kicker}
-                label={STEPS[2].label}
-                hint="The reader. Their level shapes the explanation."
-              >
-                <BareInput
-                  value={audience}
-                  onChange={setAudience}
-                  placeholder="A backend dev, two years in"
-                />
-              </FieldRow>
-
-              <FieldRow kicker={STEPS[3].kicker} label={STEPS[3].label}>
-                <div className="flex flex-wrap gap-2">
-                  {STYLES.map((s) => (
-                    <Chip key={s} active={style === s} onClick={() => setStyle(s)}>
-                      {s}
-                    </Chip>
-                  ))}
-                </div>
-              </FieldRow>
-
-              <FieldRow kicker={STEPS[4].kicker} label={STEPS[4].label}>
-                <div className="flex flex-wrap gap-2">
-                  {TONES.map((t) => (
-                    <Chip key={t} active={tone === t} onClick={() => setTone(t)}>
-                      {t}
-                    </Chip>
-                  ))}
-                </div>
-              </FieldRow>
-
-              <FieldRow
-                kicker={STEPS[5].kicker}
-                label={STEPS[5].label}
-                hint="Constraints, examples, what to avoid. Optional."
-              >
-                <textarea
-                  value={extra}
-                  onChange={(e) => setExtra(e.target.value)}
-                  rows={3}
-                  placeholder="Suggest likely causes, then walk through a debug sequence."
-                  className="w-full resize-y border-0 border-b border-stone-800 bg-transparent py-2 text-base text-stone-100 placeholder:text-stone-600 focus:border-amber-400 focus:outline-none focus:ring-0"
-                />
-              </FieldRow>
-
-              <button
-                onClick={handleGenerate}
-                className="group mt-4 inline-flex items-center gap-3 border-b border-amber-400/60 pb-1 text-sm uppercase tracking-[0.28em] text-amber-300 transition hover:border-amber-300 hover:text-amber-200"
-              >
-                <Sparkles className="h-4 w-4" />
-                Forge the prompt
-                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-              </button>
-            </div>
-          </section>
-
-          {/* Result — sticky editorial card */}
-          <aside id="result" className="lg:col-span-5">
-            <div className="sticky top-8">
-              <div className="relative overflow-hidden rounded-sm border border-stone-800 bg-stone-950/80 shadow-[0_30px_80px_-30px_rgba(0,0,0,0.8)]">
-                {/* header */}
-                <div className="flex items-center justify-between border-b border-stone-800 px-5 py-3">
-                  <div className="flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-amber-400" />
-                    <span className="text-[10px] uppercase tracking-[0.28em] text-stone-500">
-                      {generated ? "Final brief" : "Live draft"}
-                    </span>
-                  </div>
-                  <button
-                    onClick={handleCopy}
-                    disabled={!generated}
-                    className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-[0.22em] text-stone-400 transition hover:text-amber-300 disabled:cursor-not-allowed disabled:opacity-40"
+            <Field n={4} label="How should the answer be written?">
+              <div className="flex flex-wrap gap-2.5">
+                {STYLES.map((s) => (
+                  <Chip
+                    key={s}
+                    active={styles.includes(s)}
+                    onClick={() => toggle(styles, s, setStyles)}
                   >
-                    {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
-                    {copied ? "Copied" : "Copy"}
-                  </button>
-                </div>
-
-                {/* body */}
-                <div className="relative max-h-[70vh] overflow-y-auto">
-                  <div
-                    aria-hidden
-                    className="pointer-events-none absolute inset-y-0 left-0 w-12"
-                    style={{
-                      backgroundImage:
-                        "repeating-linear-gradient(to bottom, transparent 0 22px, rgba(120,113,108,0.12) 22px 23px)",
-                    }}
-                  />
-                  <pre
-                    className="relative whitespace-pre-wrap px-6 py-6 pl-14 text-[13px] leading-[1.75] text-stone-300"
-                    style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}
-                  >
-                    {generated ?? preview}
-                  </pre>
-                </div>
-
-                {/* footer */}
-                <div className="flex items-center justify-between border-t border-stone-800 px-5 py-3 text-[10px] uppercase tracking-[0.22em] text-stone-500">
-                  <span>{(generated ?? preview).length} chars</span>
-                  <span>{generated ? "Ready to paste" : "Updating live"}</span>
-                </div>
+                    {s}
+                  </Chip>
+                ))}
               </div>
+            </Field>
 
-              <p className="mt-4 text-xs italic text-stone-500" style={{ fontFamily: "Fraunces, serif" }}>
-                “A well-formed prompt is the cheapest performance boost you have.”
-              </p>
-            </div>
-          </aside>
-        </div>
+            <Field n={5} label="Tone">
+              <div className="flex flex-wrap gap-2.5">
+                {TONES.map((t) => (
+                  <Chip
+                    key={t}
+                    active={tones.includes(t)}
+                    onClick={() => toggle(tones, t, setTones)}
+                  >
+                    {t}
+                  </Chip>
+                ))}
+              </div>
+            </Field>
+
+            <Field n={6} label="Extra instructions">
+              <textarea
+                value={extra}
+                onChange={(e) => setExtra(e.target.value)}
+                rows={3}
+                placeholder="Generate 3 ad variations with catchy headlines"
+                className={`${inputCls} resize-y`}
+              />
+            </Field>
+
+            <button
+              onClick={handleGenerate}
+              className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 transition hover:brightness-110 active:scale-[0.99]"
+            >
+              <Sparkles className="h-4 w-4" />
+              Generate Prompt
+            </button>
+          </div>
+        </section>
+
+        {/* ============ RIGHT: STAGE 1 or STAGE 2 ============ */}
+        {generated ? (
+          <ResultStage generated={generated} copied={copied} onCopy={handleCopy} />
+        ) : (
+          <PreviewStage data={data} natural={natural} />
+        )}
       </div>
     </main>
   );
 }
 
-function FieldRow({
-  kicker,
-  label,
-  hint,
-  children,
-}: {
-  kicker: string;
-  label: string;
-  hint?: string;
-  children: React.ReactNode;
-}) {
+/* ---------- Stage 1: Live Preview ---------- */
+function PreviewStage({ data, natural }: { data: FormData; natural: string }) {
   return (
-    <div className="grid gap-3 md:grid-cols-12 md:gap-6">
-      <div className="md:col-span-3">
-        <div className="flex items-baseline gap-3">
-          <span
-            className="text-xs uppercase tracking-[0.28em] text-amber-400/70"
-            style={{ fontFamily: "Fraunces, serif", fontStyle: "italic", letterSpacing: "0.15em" }}
-          >
-            {kicker}
-          </span>
-          <span className="h-px flex-1 bg-stone-800" />
-        </div>
-        <h3
-          className="mt-2 text-lg leading-snug text-stone-100"
-          style={{ fontFamily: "Fraunces, serif", fontWeight: 400 }}
-        >
-          {label}
-        </h3>
-        {hint && <p className="mt-1 text-xs leading-relaxed text-stone-500">{hint}</p>}
+    <section className="space-y-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <h2 className="text-2xl font-bold text-slate-900">Live Preview</h2>
+        <p className="mt-1 text-sm text-slate-500">See how your prompt will be structured.</p>
       </div>
-      <div className="md:col-span-9">{children}</div>
-    </div>
+
+      {/* Prompt Summary */}
+      <Card>
+        <CardHeader icon={<FileText className="h-4 w-4 text-indigo-600" />} title="Prompt Summary" />
+        <div className="mt-5 divide-y divide-slate-100">
+          <SummaryRow
+            icon={<Target className="h-4 w-4" />}
+            label="Goal"
+            value={data.goal ? `Create a ${data.goal.toLowerCase()}` : "—"}
+          />
+          <SummaryRow
+            icon={<Tag className="h-4 w-4" />}
+            label="Subject"
+            value={data.subject || "—"}
+          />
+          <SummaryRow
+            icon={<Users className="h-4 w-4" />}
+            label="For"
+            value={data.audience || "—"}
+          />
+          <SummaryRow
+            icon={<PencilLine className="h-4 w-4" />}
+            label="Style"
+            value={data.styles.length ? data.styles.join(", ") : "—"}
+          />
+          <SummaryRow
+            icon={<Smile className="h-4 w-4" />}
+            label="Tone"
+            value={data.tones.length ? data.tones.join(", ") : "—"}
+          />
+          <SummaryRow
+            icon={<FileText className="h-4 w-4" />}
+            label="Extra"
+            value={data.extra || "—"}
+          />
+        </div>
+      </Card>
+
+      {/* Prompt Preview */}
+      <Card>
+        <CardHeader
+          icon={<MessageSquare className="h-4 w-4 text-indigo-600" />}
+          title="Prompt Preview"
+        />
+        <p className="mt-4 text-[15px] leading-relaxed text-slate-700">{natural}</p>
+      </Card>
+    </section>
   );
 }
 
-function BareInput({
-  value,
-  onChange,
-  placeholder,
+/* ---------- Stage 2: Generated Result ---------- */
+function ResultStage({
+  generated,
+  copied,
+  onCopy,
 }: {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
+  generated: string;
+  copied: boolean;
+  onCopy: () => void;
 }) {
   return (
-    <input
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      placeholder={placeholder}
-      className="w-full border-0 border-b border-stone-800 bg-transparent py-2 text-base text-stone-100 placeholder:text-stone-600 focus:border-amber-400 focus:outline-none focus:ring-0"
-    />
+    <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+      <h2 className="text-2xl font-bold text-slate-900">Generated Result</h2>
+      <p className="mt-1 text-sm text-slate-500">Your prompt is ready to copy and use.</p>
+
+      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex justify-end">
+          <button
+            onClick={onCopy}
+            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            {copied ? "Copied" : "Copy to Clipboard"}
+          </button>
+        </div>
+        <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-slate-800">
+          {generated}
+        </pre>
+      </div>
+    </section>
+  );
+}
+
+/* ---------- shared bits ---------- */
+const inputCls =
+  "w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 shadow-sm transition focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100";
+
+function Field({ n, label, children }: { n: number; label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex gap-3">
+      <div className="flex h-7 w-7 flex-none items-center justify-center rounded-full border border-indigo-100 bg-indigo-50 text-xs font-semibold text-indigo-600">
+        {n}
+      </div>
+      <div className="flex-1">
+        <label className="mb-2 block text-sm font-semibold text-slate-800">{label}</label>
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -387,14 +349,47 @@ function Chip({
       type="button"
       onClick={onClick}
       className={
-        "inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs uppercase tracking-[0.15em] transition " +
+        "inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition " +
         (active
-          ? "border-amber-400 bg-amber-400/10 text-amber-200"
-          : "border-stone-800 text-stone-400 hover:border-stone-600 hover:text-stone-200")
+          ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/20"
+          : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50")
       }
     >
       {children}
-      {active && <Check className="h-3 w-3" />}
+      {active && <Check className="h-3.5 w-3.5" />}
     </button>
+  );
+}
+
+function Card({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-7">{children}</div>
+  );
+}
+
+function CardHeader({ icon, title }: { icon: React.ReactNode; title: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-50">{icon}</div>
+      <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+    </div>
+  );
+}
+
+function SummaryRow({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="grid grid-cols-[24px_110px_1fr] items-start gap-4 py-3 text-sm">
+      <span className="mt-0.5 text-slate-400">{icon}</span>
+      <span className="font-semibold text-slate-900">{label}</span>
+      <span className="text-slate-600">{value}</span>
+    </div>
   );
 }

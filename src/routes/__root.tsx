@@ -77,14 +77,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "Prompt Maker" },
+      { name: "description", content: "Prompt Builder Studio generates and refines prompts for AI models." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "Prompt Maker" },
+      { property: "og:description", content: "Prompt Builder Studio generates and refines prompts for AI models." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "Prompt Maker" },
+      { name: "twitter:description", content: "Prompt Builder Studio generates and refines prompts for AI models." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/4afd2af2-59c0-4dff-911f-86794a4b9a4c/id-preview-55b4be1f--6b7f8317-9ba5-44d8-9d8a-279a856da3fb.lovable.app-1781107447256.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/4afd2af2-59c0-4dff-911f-86794a4b9a4c/id-preview-55b4be1f--6b7f8317-9ba5-44d8-9d8a-279a856da3fb.lovable.app-1781107447256.png" },
     ],
     links: [
       {

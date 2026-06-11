@@ -541,14 +541,15 @@ function PromptBuilderPage() {
     setTimeout(() => setCopied(false), 1800);
   };
 
-  const handleOpenIn = (site: "chatgpt" | "gemini") => {
+  const handleOpenIn = async (site: "chatgpt" | "gemini") => {
     if (!generated) return;
-    const encoded = encodeURIComponent(generated);
-    const url =
-      site === "chatgpt"
-        ? `https://chatgpt.com/?q=${encoded}`
-        : `https://gemini.google.com/app?q=${encoded}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    if (site === "gemini") {
+      await navigator.clipboard.writeText(generated);
+      window.open("https://gemini.google.com/app", "_blank", "noopener,noreferrer");
+    } else {
+      const encoded = encodeURIComponent(generated);
+      window.open(`https://chatgpt.com/?q=${encoded}`, "_blank", "noopener,noreferrer");
+    }
     setLaunchHint(site);
     setTimeout(() => setLaunchHint(null), 4000);
   };
@@ -568,7 +569,7 @@ function PromptBuilderPage() {
               <p className="mt-1 text-sm text-slate-500">Describe what you need — rules apply automatically.</p>
             </div>
             <Link
-              to="/wiseyak"
+              to="/aikhoj"
               className="shrink-0 inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-600 shadow-sm transition hover:bg-indigo-100 hover:border-indigo-300"
             >
               Advanced →
@@ -869,11 +870,19 @@ function ResultStage({
           </button>
         </div>
 
-        {launchHint && (
+        {launchHint === "chatgpt" && (
           <p className="text-center text-xs text-slate-400">
-            Prompt sent to {launchHint === "chatgpt" ? "ChatGPT" : "Gemini"} — it should appear in the input field automatically.
+            Prompt sent to ChatGPT — it should appear in the input field automatically.
             <br />
             If it didn't load, paste with{" "}
+            <kbd className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-600">Ctrl+V</kbd>
+            {" "}or{" "}
+            <kbd className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-600">⌘V</kbd>
+          </p>
+        )}
+        {launchHint === "gemini" && (
+          <p className="text-center text-xs text-slate-400">
+            Prompt copied to clipboard — paste it in Gemini with{" "}
             <kbd className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-600">Ctrl+V</kbd>
             {" "}or{" "}
             <kbd className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-600">⌘V</kbd>

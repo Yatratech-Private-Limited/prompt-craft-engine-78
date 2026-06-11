@@ -32,14 +32,14 @@ import type {
   ProblemHandlingMode,
 } from "@/prompt-engine/types";
 
-export const Route = createFileRoute("/wiseyak")({
+export const Route = createFileRoute("/aikhoj")({
   head: () => ({
     meta: [
-      { title: "WiseYak - Prompt Engine" },
+      { title: "AIKhoj - Prompt Engine" },
       { name: "description", content: "Build a production-ready AI assistant prompt in minutes." },
     ],
   }),
-  component: WiseYakPage,
+  component: AIKhojPage,
 });
 
 // ─── Rule-based industry defaults ────────────────────────────────────────────
@@ -366,7 +366,7 @@ function buildConfig(form: FormState): PromptConfiguration {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-function WiseYakPage() {
+function AIKhojPage() {
   const [form, setForm] = useState<FormState>(() => defaultFormForIndustry("agriculture"));
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [copied, setCopied] = useState<"behavioral" | "structured" | null>(null);
@@ -404,13 +404,14 @@ function WiseYakPage() {
     setTimeout(() => setCopied(null), 2000);
   };
 
-  const openIn = (site: "chatgpt" | "gemini") => {
-    const encoded = encodeURIComponent(behavioralPrompt);
-    const url =
-      site === "chatgpt"
-        ? `https://chatgpt.com/?q=${encoded}`
-        : `https://gemini.google.com/app?q=${encoded}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+  const openIn = async (site: "chatgpt" | "gemini") => {
+    if (site === "gemini") {
+      await navigator.clipboard.writeText(behavioralPrompt);
+      window.open("https://gemini.google.com/app", "_blank", "noopener,noreferrer");
+    } else {
+      const encoded = encodeURIComponent(behavioralPrompt);
+      window.open(`https://chatgpt.com/?q=${encoded}`, "_blank", "noopener,noreferrer");
+    }
     setOpenedIn(site);
     setTimeout(() => setOpenedIn(null), 4000);
   };
@@ -800,11 +801,19 @@ function WiseYakPage() {
                     {openedIn !== "gemini" && <ExternalLink className="h-3.5 w-3.5 text-slate-400" />}
                   </button>
                 </div>
-                {(openedIn === "chatgpt" || openedIn === "gemini") && (
+                {openedIn === "chatgpt" && (
                   <p className="text-center text-xs text-slate-400">
-                    Prompt sent to {openedIn === "chatgpt" ? "ChatGPT" : "Gemini"} — it should appear in the input field automatically.
+                    Prompt sent to ChatGPT — it should appear in the input field automatically.
                     <br />
                     If it didn't load, paste with{" "}
+                    <kbd className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-600">Ctrl+V</kbd>
+                    {" "}or{" "}
+                    <kbd className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-600">⌘V</kbd>
+                  </p>
+                )}
+                {openedIn === "gemini" && (
+                  <p className="text-center text-xs text-slate-400">
+                    Prompt copied to clipboard — paste it in Gemini with{" "}
                     <kbd className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-600">Ctrl+V</kbd>
                     {" "}or{" "}
                     <kbd className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-600">⌘V</kbd>

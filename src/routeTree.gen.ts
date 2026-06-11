@@ -9,12 +9,12 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as WiseyakRouteImport } from './routes/wiseyak'
+import { Route as AikhojRouteImport } from './routes/aikhoj'
 import { Route as IndexRouteImport } from './routes/index'
 
-const WiseyakRoute = WiseyakRouteImport.update({
-  id: '/wiseyak',
-  path: '/wiseyak',
+const AikhojRoute = AikhojRouteImport.update({
+  id: '/aikhoj',
+  path: '/aikhoj',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -25,37 +25,37 @@ const IndexRoute = IndexRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/wiseyak': typeof WiseyakRoute
+  '/aikhoj': typeof AikhojRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/wiseyak': typeof WiseyakRoute
+  '/aikhoj': typeof AikhojRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/wiseyak': typeof WiseyakRoute
+  '/aikhoj': typeof AikhojRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/wiseyak'
+  fullPaths: '/' | '/aikhoj'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/wiseyak'
-  id: '__root__' | '/' | '/wiseyak'
+  to: '/' | '/aikhoj'
+  id: '__root__' | '/' | '/aikhoj'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  WiseyakRoute: typeof WiseyakRoute
+  AikhojRoute: typeof AikhojRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/wiseyak': {
-      id: '/wiseyak'
-      path: '/wiseyak'
-      fullPath: '/wiseyak'
-      preLoaderRoute: typeof WiseyakRouteImport
+    '/aikhoj': {
+      id: '/aikhoj'
+      path: '/aikhoj'
+      fullPath: '/aikhoj'
+      preLoaderRoute: typeof AikhojRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -70,7 +70,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  WiseyakRoute: WiseyakRoute,
+  AikhojRoute: AikhojRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

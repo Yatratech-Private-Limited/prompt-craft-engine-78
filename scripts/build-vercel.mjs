@@ -1,33 +1,42 @@
 /**
  * Transforms TanStack Start's dist/ output into Vercel Build Output API v3 format.
  *
+ * The key step is bundling dist/server/ + all node_modules into a single file
+ * via esbuild so the Vercel function is fully self-contained.
+ *
  * Output layout:
  *   .vercel/output/static/          ← client assets served from CDN
- *   .vercel/output/functions/        ← SSR catch-all function
+ *   .vercel/output/functions/        ← SSR catch-all Node.js function
  *   .vercel/output/config.json       ← routing rules
  */
-import { cp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { mkdir, writeFile, rm } from 'node:fs/promises'
 import { execSync } from 'node:child_process'
+import { build } from 'esbuild'
+import { fileURLToPath } from 'node:url'
+import { resolve } from 'node:path'
 
-const VERCEL_OUT = '.vercel/output'
+const __dirname = fileURLToPath(new URL('.', import.meta.url))
+const root = resolve(__dirname, '..')
+
+const VERCEL_OUT = `${root}/.vercel/output`
 const FUNC_DIR   = `${VERCEL_OUT}/functions/index.func`
 
-// 1. Clean and build
+// 1. Clean previous output and run the TanStack Start build
 await rm(VERCEL_OUT, { recursive: true, force: true })
-execSync('vite build', { stdio: 'inherit' })
+execSync('vite build', { stdio: 'inherit', cwd: root })
 
-// 2. Static assets → CDN
+// 2. Static assets → Vercel CDN
 await mkdir(`${VERCEL_OUT}/static`, { recursive: true })
-await cp('dist/client', `${VERCEL_OUT}/static`, { recursive: true })
+execSync(`cp -r ${root}/dist/client/. ${VERCEL_OUT}/static/`)
 
-// 3. Server bundle → Node.js function
+// 3. Bundle the entire SSR server (including all node_modules) into one file
 await mkdir(FUNC_DIR, { recursive: true })
-await cp('dist/server', `${FUNC_DIR}/server`, { recursive: true })
 
-// 4. Adapter: bridges Node.js http req/res ↔ Web Fetch API
-await writeFile(`${FUNC_DIR}/index.mjs`, `
-import server from './server/server.js'
+// Write a thin entry that adapts the fetch handler to Node.js req/res
+const entry = `${FUNC_DIR}/_entry.mjs`
+await writeFile(entry, `
 import { Readable } from 'node:stream'
+import server from '${root}/dist/server/server.js'
 
 export default async function handler(req, res) {
   const proto = req.headers['x-forwarded-proto'] || 'https'
@@ -52,7 +61,6 @@ export default async function handler(req, res) {
     for (const [key, val] of fetchRes.headers.entries()) res.setHeader(key, val)
     if (fetchRes.body) {
       const reader = fetchRes.body.getReader()
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
@@ -68,7 +76,29 @@ export default async function handler(req, res) {
 }
 `.trimStart())
 
-// 5. Function runtime config
+// Bundle everything (server + all node_modules) into a single file
+await build({
+  entryPoints: [entry],
+  bundle: true,
+  platform: 'node',
+  target: 'node20',
+  format: 'esm',
+  outfile: `${FUNC_DIR}/index.mjs`,
+  // Only exclude true Node.js built-ins
+  external: ['node:*'],
+  minify: false,
+  // Preserve side-effect imports that packages may incorrectly mark as pure
+  ignoreAnnotations: true,
+  // Allow dynamic requires from CJS packages
+  banner: {
+    js: `import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);`,
+  },
+})
+
+// Clean up temp entry
+await rm(entry)
+
+// 4. Function runtime config
 await writeFile(`${FUNC_DIR}/.vc-config.json`, JSON.stringify({
   runtime: 'nodejs20.x',
   handler: 'index.mjs',
@@ -76,19 +106,16 @@ await writeFile(`${FUNC_DIR}/.vc-config.json`, JSON.stringify({
   supportsResponseStreaming: true,
 }, null, 2))
 
-// 6. Routing: static assets first, then SSR
+// 5. Routing: static assets from CDN, everything else → SSR
 await writeFile(`${VERCEL_OUT}/config.json`, JSON.stringify({
   version: 3,
   routes: [
-    // Long-cache immutable hashed assets
     {
       src: '/assets/.*',
       headers: { 'Cache-Control': 'public, max-age=31536000, immutable' },
       continue: true,
     },
-    // Serve any file that exists as static
     { handle: 'filesystem' },
-    // Everything else → SSR function
     { src: '/(.*)', dest: '/index' },
   ],
 }, null, 2))

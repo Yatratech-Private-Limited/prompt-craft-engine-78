@@ -97,6 +97,15 @@ export function compileUnstructuredBehavioralPrompt(config: PromptConfiguration)
   if (safetyRules.requireSourceGrounding) {
     safetyLines.push("Always ground your response in available data and cite that it comes from the provided context.");
   }
+  if (safetyRules.blockPIICollection) {
+    safetyLines.push("Never ask the user for passwords, PINs, full card numbers, national ID numbers, or any other sensitive personal credentials.");
+  }
+  if (safetyRules.neverRepeatSensitiveData) {
+    safetyLines.push("Never repeat, echo, or display sensitive data (account numbers, card numbers, passwords) back to the user in any response.");
+  }
+  if (safetyRules.restrictToDomain) {
+    safetyLines.push(`Only answer questions relevant to the ${escapeXml(meta.domainDescription || meta.industry)} domain. Politely decline unrelated queries.`);
+  }
   if (safetyRules.escalationMessage) {
     safetyLines.push(safetyRules.escalationMessage);
   }

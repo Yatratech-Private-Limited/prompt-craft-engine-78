@@ -83,6 +83,9 @@ export interface PromptConfiguration {
     blockMedicalDiagnosis: boolean;
     blockLegalClaims: boolean;
     requireSourceGrounding: boolean;
+    blockPIICollection?: boolean;
+    restrictToDomain?: boolean;
+    neverRepeatSensitiveData?: boolean;
     escalationMessage?: string;
   };
 

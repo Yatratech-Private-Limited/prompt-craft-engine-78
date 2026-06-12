@@ -9,6 +9,7 @@ import {
   Copy,
   ExternalLink,
   Hash,
+  ImageIcon,
   Mail,
   MessageSquare,
   PencilLine,
@@ -16,7 +17,9 @@ import {
   Sparkles,
   Tag,
   Target,
+  Type,
   Users,
+  Wand2,
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -407,6 +410,178 @@ function detectSensitivityFlags(goal: string, subject: string): SensitivityDomai
     .map((r) => r.domain);
 }
 
+// ─── Image generation types & constants ───────────────────────────────────────
+
+type ArtStyle =
+  | "photorealistic" | "cinematic" | "oil-painting" | "watercolor"
+  | "digital-art" | "anime" | "sketch" | "3d-render" | "comic-book" | "impressionist";
+
+type ImageMood = "moody" | "dreamy" | "dramatic" | "cheerful" | "peaceful" | "mysterious" | "epic";
+
+type Lighting = "golden-hour" | "studio" | "neon" | "soft-diffused" | "harsh-shadows" | "moonlight" | "overcast";
+
+type Composition =
+  | "wide-angle" | "portrait" | "birds-eye" | "low-angle"
+  | "rule-of-thirds" | "symmetrical" | "bokeh";
+
+type ColorPalette = "auto" | "warm" | "cool" | "monochrome" | "vibrant" | "muted" | "pastel" | "neon-colors";
+
+type ImageFormData = {
+  subject: string;
+  artStyles: ArtStyle[];
+  moods: ImageMood[];
+  lighting: Lighting | null;
+  composition: Composition | null;
+  colorPalette: ColorPalette;
+  extraDetails: string;
+  negativePrompt: string;
+};
+
+const ART_STYLE_LABELS: Record<ArtStyle, string> = {
+  "photorealistic": "Photorealistic",
+  "cinematic": "Cinematic",
+  "oil-painting": "Oil Painting",
+  "watercolor": "Watercolor",
+  "digital-art": "Digital Art",
+  "anime": "Anime / Manga",
+  "sketch": "Sketch",
+  "3d-render": "3D Render",
+  "comic-book": "Comic Book",
+  "impressionist": "Impressionist",
+};
+
+const IMAGE_MOOD_LABELS: Record<ImageMood, string> = {
+  moody: "Moody / Dark",
+  dreamy: "Dreamy / Ethereal",
+  dramatic: "Dramatic",
+  cheerful: "Bright / Cheerful",
+  peaceful: "Peaceful / Calm",
+  mysterious: "Mysterious",
+  epic: "Epic / Heroic",
+};
+
+const LIGHTING_LABELS: Record<Lighting, string> = {
+  "golden-hour": "Golden Hour",
+  "studio": "Studio",
+  "neon": "Neon / Cyberpunk",
+  "soft-diffused": "Soft Diffused",
+  "harsh-shadows": "Harsh Shadows",
+  "moonlight": "Moonlight",
+  "overcast": "Overcast",
+};
+
+const COMPOSITION_LABELS: Record<Composition, string> = {
+  "wide-angle": "Wide Angle",
+  "portrait": "Portrait / Close-up",
+  "birds-eye": "Bird's Eye View",
+  "low-angle": "Low Angle",
+  "rule-of-thirds": "Rule of Thirds",
+  "symmetrical": "Symmetrical",
+  "bokeh": "Bokeh / Shallow DOF",
+};
+
+const COLOR_PALETTE_LABELS: Record<ColorPalette, string> = {
+  auto: "Auto",
+  warm: "Warm Tones",
+  cool: "Cool Tones",
+  monochrome: "Monochrome",
+  vibrant: "Vibrant",
+  muted: "Muted / Desaturated",
+  pastel: "Pastel",
+  "neon-colors": "Neon Colors",
+};
+
+const COLOR_PALETTE_TERMS: Record<ColorPalette, string> = {
+  auto: "",
+  warm: "warm color palette, golden tones",
+  cool: "cool color palette, blue tones",
+  monochrome: "monochromatic, black and white",
+  vibrant: "vibrant colors, high saturation",
+  muted: "muted colors, desaturated, low saturation",
+  pastel: "pastel colors, soft hues",
+  "neon-colors": "neon colors, electric palette",
+};
+
+const DEFAULT_NEGATIVE_PROMPT =
+  "blurry, out of focus, bad anatomy, watermark, text overlay, low quality, pixelated, distorted, ugly, deformed";
+
+const ART_STYLE_PERSONA: Record<ArtStyle, string> = {
+  "photorealistic":  "a professional photographer with expertise in high-end commercial and fine-art photography",
+  "cinematic":       "a cinematographer and visual director specializing in dramatic, film-quality imagery",
+  "oil-painting":    "a master oil painter with deep knowledge of classical and contemporary painting techniques",
+  "watercolor":      "a professional watercolor artist known for luminous, expressive illustrations",
+  "digital-art":     "a concept artist and digital illustrator working in the style of leading studios",
+  "anime":           "a professional anime artist and character illustrator trained in Japanese animation aesthetics",
+  "sketch":          "a professional sketch artist with expertise in expressive line work and tonal rendering",
+  "3d-render":       "a 3D artist and visual effects specialist producing photorealistic CGI renders",
+  "comic-book":      "a comic book artist and inker with a bold, graphic visual style",
+  "impressionist":   "an impressionist painter who captures light, movement, and emotion through expressive brushwork",
+};
+
+function deriveImagePersona(artStyles: ArtStyle[]): string {
+  if (artStyles.length === 0) return "a skilled visual artist and image designer";
+  if (artStyles.length === 1) return ART_STYLE_PERSONA[artStyles[0]];
+  return `a versatile visual artist skilled in ${artStyles.map((s) => ART_STYLE_LABELS[s].toLowerCase()).join(" and ")}`;
+}
+
+function buildImagePrompt(d: ImageFormData): string {
+  const persona = deriveImagePersona(d.artStyles);
+  const lines: string[] = [];
+
+  lines.push(`You are ${persona}.`);
+  lines.push("");
+
+  lines.push("## Subject");
+  lines.push(d.subject.trim() || "[describe your scene or subject]");
+  lines.push("");
+
+  lines.push("## Art Style");
+  lines.push(
+    d.artStyles.length
+      ? d.artStyles.map((s) => ART_STYLE_LABELS[s]).join(", ")
+      : "Not specified"
+  );
+  lines.push("");
+
+  lines.push("## Mood & Atmosphere");
+  lines.push(
+    d.moods.length
+      ? d.moods.map((m) => IMAGE_MOOD_LABELS[m]).join(", ")
+      : "Not specified"
+  );
+  lines.push("");
+
+  lines.push("## Lighting");
+  lines.push(d.lighting ? LIGHTING_LABELS[d.lighting] : "Not specified");
+  lines.push("");
+
+  lines.push("## Composition");
+  lines.push(d.composition ? COMPOSITION_LABELS[d.composition] : "Not specified");
+  lines.push("");
+
+  lines.push("## Color Palette");
+  lines.push(d.colorPalette !== "auto" ? COLOR_PALETTE_LABELS[d.colorPalette] : "Not specified");
+  lines.push("");
+
+  if (d.extraDetails.trim()) {
+    lines.push("## Additional Details");
+    lines.push(d.extraDetails.trim());
+    lines.push("");
+  }
+
+  lines.push("## Quality Standards");
+  lines.push("• Ultra-detailed and high resolution");
+  lines.push("• Sharp focus with accurate, consistent lighting");
+  lines.push("• Composition must feel intentional and balanced");
+  lines.push("• Style must be cohesive and true to the selected art direction");
+  lines.push("");
+
+  lines.push("## Negative Prompt");
+  lines.push(d.negativePrompt.trim() || DEFAULT_NEGATIVE_PROMPT);
+
+  return lines.join("\n");
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TONES = ["Simple", "Friendly", "Professional", "Technical", "Persuasive", "Concise", "Empathetic"] as const;
@@ -506,6 +681,9 @@ function buildPrompt(
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 function PromptBuilderPage() {
+  const [mode, setMode] = useState<"text" | "image">("text");
+
+  // Text form state
   const [goal, setGoal] = useState("");
   const [subject, setSubject] = useState("");
   const [audience, setAudience] = useState("");
@@ -513,6 +691,17 @@ function PromptBuilderPage() {
   const [length, setLength] = useState<Length>("auto");
   const [tones, setTones] = useState<Tone[]>(["Friendly", "Professional"]);
   const [extra, setExtra] = useState("");
+
+  // Image form state
+  const [imgSubject, setImgSubject] = useState("");
+  const [imgArtStyles, setImgArtStyles] = useState<ArtStyle[]>([]);
+  const [imgMoods, setImgMoods] = useState<ImageMood[]>([]);
+  const [imgLighting, setImgLighting] = useState<Lighting | null>(null);
+  const [imgComposition, setImgComposition] = useState<Composition | null>(null);
+  const [imgColorPalette, setImgColorPalette] = useState<ColorPalette>("auto");
+  const [imgExtraDetails, setImgExtraDetails] = useState("");
+  const [imgNegativePrompt, setImgNegativePrompt] = useState("");
+
   const [generated, setGenerated] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [launchHint, setLaunchHint] = useState<"chatgpt" | "gemini" | null>(null);
@@ -528,8 +717,30 @@ function PromptBuilderPage() {
   const toggleTone = (t: Tone) =>
     setTones((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
 
+  const handleModeSwitch = (m: "text" | "image") => {
+    setMode(m);
+    setGenerated(null);
+    setCopied(false);
+    setLaunchHint(null);
+  };
+
+  const imgData: ImageFormData = {
+    subject: imgSubject,
+    artStyles: imgArtStyles,
+    moods: imgMoods,
+    lighting: imgLighting,
+    composition: imgComposition,
+    colorPalette: imgColorPalette,
+    extraDetails: imgExtraDetails,
+    negativePrompt: imgNegativePrompt,
+  };
+
   const handleGenerate = () => {
-    setGenerated(buildPrompt(data, role, audienceTier, effectiveFormat, sensitivityFlags));
+    if (mode === "text") {
+      setGenerated(buildPrompt(data, role, audienceTier, effectiveFormat, sensitivityFlags));
+    } else {
+      setGenerated(buildImagePrompt(imgData));
+    }
     setCopied(false);
     setLaunchHint(null);
   };
@@ -576,138 +787,348 @@ function PromptBuilderPage() {
             </Link>
           </div>
 
-          <div className="mt-8 space-y-6">
+          {/* ── MODE TOGGLE ── */}
+          <div className="mt-6 inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1 gap-1">
+            <button
+              type="button"
+              onClick={() => handleModeSwitch("text")}
+              className={[
+                "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition",
+                mode === "text"
+                  ? "bg-white text-slate-900 shadow-sm border border-slate-200"
+                  : "text-slate-500 hover:text-slate-700",
+              ].join(" ")}
+            >
+              <Type className="h-4 w-4" />
+              Text
+            </button>
+            <button
+              type="button"
+              onClick={() => handleModeSwitch("image")}
+              className={[
+                "inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition",
+                mode === "image"
+                  ? "bg-white text-slate-900 shadow-sm border border-slate-200"
+                  : "text-slate-500 hover:text-slate-700",
+              ].join(" ")}
+            >
+              <ImageIcon className="h-4 w-4" />
+              Image
+            </button>
+          </div>
 
-            {/* 1 — GOAL */}
-            <Field n={1} label="What do you want to create?">
-              <input
-                value={goal}
-                onChange={(e) => setGoal(e.target.value)}
-                placeholder="Write a Facebook ad for my bakery"
-                className={inputCls}
-              />
-            </Field>
+          <div className="mt-6 space-y-6">
+            {mode === "text" ? (
+              <>
+                {/* 1 — GOAL */}
+                <Field n={1} label="What do you want to create?">
+                  <input
+                    value={goal}
+                    onChange={(e) => setGoal(e.target.value)}
+                    placeholder="Write a Facebook ad for my bakery"
+                    className={inputCls}
+                  />
+                </Field>
 
-            {/* 2 — SUBJECT */}
-            <Field n={2} label="What is the topic or subject?">
-              <input
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                placeholder="Fresh artisan breads and seasonal pastries"
-                className={inputCls}
-              />
-            </Field>
+                {/* 2 — SUBJECT */}
+                <Field n={2} label="What is the topic or subject?">
+                  <input
+                    value={subject}
+                    onChange={(e) => setSubject(e.target.value)}
+                    placeholder="Fresh artisan breads and seasonal pastries"
+                    className={inputCls}
+                  />
+                </Field>
 
-            {/* 3 — AUDIENCE */}
-            <Field n={3} label="Who is this for?">
-              <input
-                value={audience}
-                onChange={(e) => setAudience(e.target.value)}
-                placeholder="Local families near Kathmandu"
-                className={inputCls}
-              />
-            </Field>
+                {/* 3 — AUDIENCE */}
+                <Field n={3} label="Who is this for?">
+                  <input
+                    value={audience}
+                    onChange={(e) => setAudience(e.target.value)}
+                    placeholder="Local families near Kathmandu"
+                    className={inputCls}
+                  />
+                </Field>
 
-            {/* 4 — FORMAT */}
-            <Field n={4} label="Output format">
-              <div className="flex flex-wrap gap-2">
-                {OUTPUT_FORMAT_IDS.map((fid) => {
-                  const m = FORMAT_META[fid];
-                  const active = format === fid;
-                  const showDetected = fid === "auto" && format === "auto" && detectedFormat !== "auto";
-                  return (
-                    <button
-                      key={fid}
-                      type="button"
-                      onClick={() => setFormat(fid)}
-                      className={[
-                        "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition",
-                        active
-                          ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/20"
-                          : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
-                      ].join(" ")}
-                    >
-                      {m.icon}
-                      {m.label}
-                      {showDetected && (
-                        <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">
-                          → {FORMAT_META[detectedFormat].label}
-                        </span>
-                      )}
-                      {active && fid !== "auto" && <Check className="h-3 w-3" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </Field>
+                {/* 4 — FORMAT */}
+                <Field n={4} label="Output format">
+                  <div className="flex flex-wrap gap-2">
+                    {OUTPUT_FORMAT_IDS.map((fid) => {
+                      const m = FORMAT_META[fid];
+                      const active = format === fid;
+                      const showDetected = fid === "auto" && format === "auto" && detectedFormat !== "auto";
+                      return (
+                        <button
+                          key={fid}
+                          type="button"
+                          onClick={() => setFormat(fid)}
+                          className={[
+                            "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition",
+                            active
+                              ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/20"
+                              : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                          ].join(" ")}
+                        >
+                          {m.icon}
+                          {m.label}
+                          {showDetected && (
+                            <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-bold text-indigo-700">
+                              → {FORMAT_META[detectedFormat].label}
+                            </span>
+                          )}
+                          {active && fid !== "auto" && <Check className="h-3 w-3" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
 
-            {/* 5 — LENGTH */}
-            <Field n={5} label="Length">
-              <div className="flex flex-wrap gap-2">
-                {LENGTH_IDS.map((lid) => {
-                  const active = length === lid;
-                  const labels: Record<Length, string> = {
-                    auto: "Auto", concise: "Concise", standard: "Standard", detailed: "Detailed",
-                  };
-                  return (
-                    <button
-                      key={lid}
-                      type="button"
-                      onClick={() => setLength(lid)}
-                      className={[
-                        "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition",
-                        active
-                          ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/20"
-                          : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
-                      ].join(" ")}
-                    >
-                      {labels[lid]}
-                      {active && lid !== "auto" && <Check className="h-3 w-3" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </Field>
+                {/* 5 — LENGTH */}
+                <Field n={5} label="Length">
+                  <div className="flex flex-wrap gap-2">
+                    {LENGTH_IDS.map((lid) => {
+                      const active = length === lid;
+                      const labels: Record<Length, string> = {
+                        auto: "Auto", concise: "Concise", standard: "Standard", detailed: "Detailed",
+                      };
+                      return (
+                        <button
+                          key={lid}
+                          type="button"
+                          onClick={() => setLength(lid)}
+                          className={[
+                            "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition",
+                            active
+                              ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/20"
+                              : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                          ].join(" ")}
+                        >
+                          {labels[lid]}
+                          {active && lid !== "auto" && <Check className="h-3 w-3" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
 
-            {/* 6 — TONE */}
-            <Field n={6} label="Tone">
-              <div className="flex flex-wrap gap-2">
-                {TONES.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => toggleTone(t)}
-                    className={[
-                      "inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition",
-                      tones.includes(t)
-                        ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/20"
-                        : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
-                    ].join(" ")}
-                  >
-                    {t}
-                    {tones.includes(t) && <Check className="h-3.5 w-3.5" />}
-                  </button>
-                ))}
-              </div>
-            </Field>
+                {/* 6 — TONE */}
+                <Field n={6} label="Tone">
+                  <div className="flex flex-wrap gap-2">
+                    {TONES.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => toggleTone(t)}
+                        className={[
+                          "inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition",
+                          tones.includes(t)
+                            ? "bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/20"
+                            : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                        ].join(" ")}
+                      >
+                        {t}
+                        {tones.includes(t) && <Check className="h-3.5 w-3.5" />}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
 
-            {/* 7 — CONTEXT & CONSTRAINTS */}
-            <Field n={7} label="Context & constraints">
-              <textarea
-                value={extra}
-                onChange={(e) => setExtra(e.target.value)}
-                rows={3}
-                placeholder="Background context, things to avoid, special requirements…"
-                className={`${inputCls} resize-y`}
-              />
-            </Field>
+                {/* 7 — CONTEXT & CONSTRAINTS */}
+                <Field n={7} label="Context & constraints">
+                  <textarea
+                    value={extra}
+                    onChange={(e) => setExtra(e.target.value)}
+                    rows={3}
+                    placeholder="Background context, things to avoid, special requirements…"
+                    className={`${inputCls} resize-y`}
+                  />
+                </Field>
+              </>
+            ) : (
+              <>
+                {/* IMAGE FORM */}
+
+                {/* 1 — SUBJECT / SCENE */}
+                <Field n={1} label="Subject / Scene">
+                  <input
+                    value={imgSubject}
+                    onChange={(e) => setImgSubject(e.target.value)}
+                    placeholder="a lone wolf standing on a cliff at dusk"
+                    className={inputCls}
+                  />
+                </Field>
+
+                {/* 2 — ART STYLE */}
+                <Field n={2} label="Art Style">
+                  <div className="flex flex-wrap gap-2">
+                    {(Object.keys(ART_STYLE_LABELS) as ArtStyle[]).map((s) => {
+                      const active = imgArtStyles.includes(s);
+                      return (
+                        <button
+                          key={s}
+                          type="button"
+                          onClick={() =>
+                            setImgArtStyles((prev) =>
+                              prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
+                            )
+                          }
+                          className={[
+                            "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition",
+                            active
+                              ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-md shadow-violet-500/20"
+                              : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                          ].join(" ")}
+                        >
+                          {ART_STYLE_LABELS[s]}
+                          {active && <Check className="h-3 w-3" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
+
+                {/* 3 — MOOD */}
+                <Field n={3} label="Mood & Atmosphere">
+                  <div className="flex flex-wrap gap-2">
+                    {(Object.keys(IMAGE_MOOD_LABELS) as ImageMood[]).map((m) => {
+                      const active = imgMoods.includes(m);
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() =>
+                            setImgMoods((prev) =>
+                              prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]
+                            )
+                          }
+                          className={[
+                            "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition",
+                            active
+                              ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-md shadow-violet-500/20"
+                              : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                          ].join(" ")}
+                        >
+                          {IMAGE_MOOD_LABELS[m]}
+                          {active && <Check className="h-3 w-3" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
+
+                {/* 4 — LIGHTING */}
+                <Field n={4} label="Lighting">
+                  <div className="flex flex-wrap gap-2">
+                    {(Object.keys(LIGHTING_LABELS) as Lighting[]).map((l) => {
+                      const active = imgLighting === l;
+                      return (
+                        <button
+                          key={l}
+                          type="button"
+                          onClick={() => setImgLighting(active ? null : l)}
+                          className={[
+                            "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition",
+                            active
+                              ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-md shadow-violet-500/20"
+                              : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                          ].join(" ")}
+                        >
+                          {LIGHTING_LABELS[l]}
+                          {active && <Check className="h-3 w-3" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
+
+                {/* 5 — COMPOSITION */}
+                <Field n={5} label="Composition">
+                  <div className="flex flex-wrap gap-2">
+                    {(Object.keys(COMPOSITION_LABELS) as Composition[]).map((c) => {
+                      const active = imgComposition === c;
+                      return (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => setImgComposition(active ? null : c)}
+                          className={[
+                            "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition",
+                            active
+                              ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-md shadow-violet-500/20"
+                              : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                          ].join(" ")}
+                        >
+                          {COMPOSITION_LABELS[c]}
+                          {active && <Check className="h-3 w-3" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
+
+                {/* 6 — COLOR PALETTE */}
+                <Field n={6} label="Color Palette">
+                  <div className="flex flex-wrap gap-2">
+                    {(Object.keys(COLOR_PALETTE_LABELS) as ColorPalette[]).map((p) => {
+                      const active = imgColorPalette === p;
+                      return (
+                        <button
+                          key={p}
+                          type="button"
+                          onClick={() => setImgColorPalette(p)}
+                          className={[
+                            "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition",
+                            active
+                              ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white shadow-md shadow-violet-500/20"
+                              : "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50",
+                          ].join(" ")}
+                        >
+                          {COLOR_PALETTE_LABELS[p]}
+                          {active && p !== "auto" && <Check className="h-3 w-3" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </Field>
+
+                {/* 7 — ADDITIONAL DETAILS */}
+                <Field n={7} label="Additional Details">
+                  <textarea
+                    value={imgExtraDetails}
+                    onChange={(e) => setImgExtraDetails(e.target.value)}
+                    rows={2}
+                    placeholder="Mist, ancient ruins, cherry blossoms, hyperrealistic skin texture…"
+                    className={`${inputCls} resize-y`}
+                  />
+                </Field>
+
+                {/* 8 — NEGATIVE PROMPT */}
+                <Field n={8} label="Negative Prompt (optional)">
+                  <textarea
+                    value={imgNegativePrompt}
+                    onChange={(e) => setImgNegativePrompt(e.target.value)}
+                    rows={2}
+                    placeholder={`Leave blank to use default: "${DEFAULT_NEGATIVE_PROMPT}"`}
+                    className={`${inputCls} resize-y`}
+                  />
+                </Field>
+              </>
+            )}
 
             <button
               onClick={handleGenerate}
-              className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-5 py-3.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 transition hover:brightness-110 active:scale-[0.99]"
+              className={[
+                "mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-sm font-semibold text-white shadow-lg transition hover:brightness-110 active:scale-[0.99]",
+                mode === "text"
+                  ? "bg-gradient-to-r from-indigo-600 to-purple-600 shadow-indigo-500/20"
+                  : "bg-gradient-to-r from-violet-600 to-fuchsia-600 shadow-violet-500/20",
+              ].join(" ")}
             >
-              <Sparkles className="h-4 w-4" />
-              Generate Prompt
+              {mode === "text" ? (
+                <><Sparkles className="h-4 w-4" /> Generate Prompt</>
+              ) : (
+                <><Wand2 className="h-4 w-4" /> Generate Image Prompt</>
+              )}
             </button>
           </div>
         </section>
@@ -720,8 +1141,9 @@ function PromptBuilderPage() {
             launchHint={launchHint}
             onCopy={handleCopy}
             onOpenIn={handleOpenIn}
+            mode={mode}
           />
-        ) : (
+        ) : mode === "text" ? (
           <PreviewStage
             data={data}
             role={role}
@@ -730,6 +1152,8 @@ function PromptBuilderPage() {
             sensitivityFlags={sensitivityFlags}
             detectedFormat={detectedFormat}
           />
+        ) : (
+          <ImagePreviewStage imgData={imgData} />
         )}
       </div>
     </main>
@@ -816,6 +1240,74 @@ function PreviewStage({
   );
 }
 
+// ─── Image Preview Stage ──────────────────────────────────────────────────────
+
+function ImagePreviewStage({ imgData }: { imgData: ImageFormData }) {
+  const hasInput = imgData.subject || imgData.artStyles.length || imgData.moods.length;
+
+  return (
+    <section className="space-y-6">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <h2 className="text-2xl font-bold text-slate-900">Live Preview</h2>
+        <p className="mt-1 text-sm text-slate-500">Selected descriptors that will shape your image prompt.</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {imgData.artStyles.map((s) => (
+            <RulePill key={s} color="violet">{ART_STYLE_LABELS[s]}</RulePill>
+          ))}
+          {imgData.moods.map((m) => (
+            <RulePill key={m} color="purple">{IMAGE_MOOD_LABELS[m]}</RulePill>
+          ))}
+          {imgData.lighting && (
+            <RulePill color="amber">{LIGHTING_LABELS[imgData.lighting]}</RulePill>
+          )}
+          {imgData.composition && (
+            <RulePill color="indigo">{COMPOSITION_LABELS[imgData.composition]}</RulePill>
+          )}
+          {imgData.colorPalette !== "auto" && (
+            <RulePill color="green">{COLOR_PALETTE_LABELS[imgData.colorPalette]}</RulePill>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
+        <div className="mb-5 flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-50">
+            <ImageIcon className="h-4 w-4 text-violet-600" />
+          </div>
+          <h3 className="text-lg font-semibold text-slate-900">Image Prompt Summary</h3>
+        </div>
+        {hasInput ? (
+          <div className="divide-y divide-slate-100">
+            <SummaryRow icon={<Target className="h-4 w-4" />} label="Scene" value={imgData.subject || "—"} />
+            <SummaryRow
+              icon={<PencilLine className="h-4 w-4" />}
+              label="Art Style"
+              value={imgData.artStyles.length ? imgData.artStyles.map((s) => ART_STYLE_LABELS[s]).join(", ") : "—"}
+            />
+            <SummaryRow
+              icon={<Smile className="h-4 w-4" />}
+              label="Mood"
+              value={imgData.moods.length ? imgData.moods.map((m) => IMAGE_MOOD_LABELS[m]).join(", ") : "—"}
+            />
+            <SummaryRow
+              icon={<Sparkles className="h-4 w-4" />}
+              label="Lighting"
+              value={imgData.lighting ? LIGHTING_LABELS[imgData.lighting] : "—"}
+            />
+            <SummaryRow
+              icon={<Tag className="h-4 w-4" />}
+              label="Palette"
+              value={COLOR_PALETTE_LABELS[imgData.colorPalette]}
+            />
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400">Fill in the fields on the left to preview your image prompt descriptors here.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 // ─── Result Stage ─────────────────────────────────────────────────────────────
 
 function ResultStage({
@@ -824,17 +1316,25 @@ function ResultStage({
   launchHint,
   onCopy,
   onOpenIn,
+  mode,
 }: {
   generated: string;
   copied: boolean;
   launchHint: "chatgpt" | "gemini" | null;
   onCopy: () => void;
   onOpenIn: (site: "chatgpt" | "gemini") => void;
+  mode: "text" | "image";
 }) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-      <h2 className="text-2xl font-bold text-slate-900">Generated Prompt</h2>
-      <p className="mt-1 text-sm text-slate-500">Ready to copy or send directly to an AI chat.</p>
+      <h2 className="text-2xl font-bold text-slate-900">
+        {mode === "image" ? "Generated Image Prompt" : "Generated Prompt"}
+      </h2>
+      <p className="mt-1 text-sm text-slate-500">
+        {mode === "image"
+          ? "Ready to paste into DALL-E, Midjourney, Stable Diffusion, or any image AI."
+          : "Ready to copy or send directly to an AI chat."}
+      </p>
 
       <div className="mt-6 space-y-3">
         <div className="max-h-[420px] overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-4 font-mono text-xs leading-relaxed text-slate-700">
@@ -844,33 +1344,49 @@ function ResultStage({
         {/* Copy */}
         <button
           onClick={onCopy}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-3 text-sm font-semibold text-white shadow-md shadow-indigo-500/20 transition hover:brightness-110 active:scale-[0.99]"
+          className={[
+            "inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white shadow-md transition hover:brightness-110 active:scale-[0.99]",
+            mode === "text"
+              ? "bg-gradient-to-r from-indigo-600 to-purple-600 shadow-indigo-500/20"
+              : "bg-gradient-to-r from-violet-600 to-fuchsia-600 shadow-violet-500/20",
+          ].join(" ")}
         >
           {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
           {copied ? "Copied!" : "Copy Prompt"}
         </button>
 
-        {/* Open in AI chat */}
-        <div className="grid grid-cols-2 gap-2">
+        {/* Open in AI */}
+        {mode === "text" ? (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={() => onOpenIn("chatgpt")}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-300 active:scale-[0.99]"
+            >
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-[#10a37f] text-[9px] font-bold text-white">G</span>
+              {launchHint === "chatgpt" ? "Opening…" : "Open in ChatGPT"}
+              {launchHint !== "chatgpt" && <ExternalLink className="h-3.5 w-3.5 text-slate-400" />}
+            </button>
+            <button
+              onClick={() => onOpenIn("gemini")}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-300 active:scale-[0.99]"
+            >
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-gradient-to-br from-blue-500 to-purple-500 text-[9px] font-bold text-white">G</span>
+              {launchHint === "gemini" ? "Opening…" : "Open in Gemini"}
+              {launchHint !== "gemini" && <ExternalLink className="h-3.5 w-3.5 text-slate-400" />}
+            </button>
+          </div>
+        ) : (
           <button
             onClick={() => onOpenIn("chatgpt")}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-300 active:scale-[0.99]"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-300 active:scale-[0.99]"
           >
             <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-[#10a37f] text-[9px] font-bold text-white">G</span>
-            {launchHint === "chatgpt" ? "Opening…" : "Open in ChatGPT"}
+            {launchHint === "chatgpt" ? "Opening…" : "Try with DALL-E in ChatGPT"}
             {launchHint !== "chatgpt" && <ExternalLink className="h-3.5 w-3.5 text-slate-400" />}
           </button>
-          <button
-            onClick={() => onOpenIn("gemini")}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 hover:border-slate-300 active:scale-[0.99]"
-          >
-            <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-sm bg-gradient-to-br from-blue-500 to-purple-500 text-[9px] font-bold text-white">G</span>
-            {launchHint === "gemini" ? "Opening…" : "Open in Gemini"}
-            {launchHint !== "gemini" && <ExternalLink className="h-3.5 w-3.5 text-slate-400" />}
-          </button>
-        </div>
+        )}
 
-        {launchHint === "chatgpt" && (
+        {launchHint === "chatgpt" && mode === "text" && (
           <p className="text-center text-xs text-slate-400">
             Prompt sent to ChatGPT — it should appear in the input field automatically.
             <br />
@@ -878,6 +1394,11 @@ function ResultStage({
             <kbd className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-600">Ctrl+V</kbd>
             {" "}or{" "}
             <kbd className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[10px] text-slate-600">⌘V</kbd>
+          </p>
+        )}
+        {launchHint === "chatgpt" && mode === "image" && (
+          <p className="text-center text-xs text-slate-400">
+            Prompt copied — paste it into ChatGPT with DALL-E, Midjourney, or Stable Diffusion.
           </p>
         )}
         {launchHint === "gemini" && (

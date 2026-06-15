@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AikhojRouteImport } from './routes/aikhoj'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AdminPositionRulesRouteImport } from './routes/admin.position-rules'
 
 const AikhojRoute = AikhojRouteImport.update({
   id: '/aikhoj',
@@ -22,31 +23,40 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminPositionRulesRoute = AdminPositionRulesRouteImport.update({
+  id: '/admin/position-rules',
+  path: '/admin/position-rules',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/aikhoj': typeof AikhojRoute
+  '/admin/position-rules': typeof AdminPositionRulesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/aikhoj': typeof AikhojRoute
+  '/admin/position-rules': typeof AdminPositionRulesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/aikhoj': typeof AikhojRoute
+  '/admin/position-rules': typeof AdminPositionRulesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/aikhoj'
+  fullPaths: '/' | '/aikhoj' | '/admin/position-rules'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/aikhoj'
-  id: '__root__' | '/' | '/aikhoj'
+  to: '/' | '/aikhoj' | '/admin/position-rules'
+  id: '__root__' | '/' | '/aikhoj' | '/admin/position-rules'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AikhojRoute: typeof AikhojRoute
+  AdminPositionRulesRoute: typeof AdminPositionRulesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -65,12 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/position-rules': {
+      id: '/admin/position-rules'
+      path: '/admin/position-rules'
+      fullPath: '/admin/position-rules'
+      preLoaderRoute: typeof AdminPositionRulesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AikhojRoute: AikhojRoute,
+  AdminPositionRulesRoute: AdminPositionRulesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

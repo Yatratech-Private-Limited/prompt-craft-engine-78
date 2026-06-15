@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlignLeft,
   BookOpen,
@@ -18,9 +18,14 @@ import {
   Tag,
   Target,
   Type,
-  Users,
   Wand2,
 } from "lucide-react";
+import {
+  DEFAULT_POSITION_RULES_TEXT,
+  POSITION_RULES_STORAGE_KEY,
+  parsePositionRules,
+  type PositionRule,
+} from "../prompt-engine/positionRules";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -42,11 +47,12 @@ type RoleId =
   | "product-manager" | "hr-specialist" | "financial-advisor" | "general";
 
 type Role = {
-  id: RoleId;
+  id: string;
   label: string;
   persona: string;
   keywords: string[];
   qualityCriteria: string[];
+  matchedKeywords?: string[];
 };
 
 const ROLES: Role[] = [
@@ -251,105 +257,206 @@ const ROLES: Role[] = [
   },
 ];
 
-// Goal field gets 2× weight — it's more indicative of intent than subject
-function deriveRole(goal: string, subject: string): Role {
+const CUSTOM_ROLE_QUALITY_CRITERIA = [
+  "Respond from the perspective of the detected professional field",
+  "Use practical domain knowledge and field-specific terminology where useful",
+  "Keep recommendations clear, actionable, and aligned with the user's stated goal",
+];
+
+type RoleMatch = {
+  matchedKeywords: string[];
+  rawMatchCount: number;
+  score: number;
+};
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function countOccurrences(text: string, keyword: string) {
+  if (!keyword) return 0;
+  const pattern = new RegExp(`(^|[^a-z0-9])${escapeRegExp(keyword)}(?=$|[^a-z0-9])`, "g");
+  return text.match(pattern)?.length ?? 0;
+}
+
+function getMatchedKeywords(text: string, keywords: string[]) {
+  return keywords.filter((keyword) => countOccurrences(text, keyword.toLowerCase()) > 0);
+}
+
+function getKeywordWeight(keyword: string) {
+  const wordCount = keyword.split(/\s+/).filter(Boolean).length;
+  const phraseBonus = wordCount > 1 ? wordCount * 1.5 : 0;
+  const lengthBonus = Math.min(keyword.length / 12, 1.5);
+  return 1 + phraseBonus + lengthBonus;
+}
+
+function getTitleTokenMatches(text: string, label: string) {
+  return label
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 3)
+    .filter((token) => countOccurrences(text, token) > 0);
+}
+
+function scoreRoleMatch(
+  goalText: string,
+  subjectText: string,
+  label: string,
+  keywords: string[]
+): RoleMatch {
+  const combinedText = `${goalText} ${subjectText}`;
+  const matchedKeywords = getMatchedKeywords(combinedText, keywords);
+  const titleTokenMatches = getTitleTokenMatches(combinedText, label);
+  const exactTitleMatch = countOccurrences(combinedText, label.toLowerCase()) > 0;
+
+  const keywordScore = keywords.reduce((total, keyword) => {
+    const normalized = keyword.toLowerCase();
+    const weight = getKeywordWeight(normalized);
+    return (
+      total +
+      countOccurrences(goalText, normalized) * weight +
+      countOccurrences(subjectText, normalized) * 4 * weight
+    );
+  }, 0);
+
+  const rawMatchCount = keywords.reduce(
+    (total, word) => total + countOccurrences(combinedText, word),
+    0
+  );
+
+  return {
+    matchedKeywords,
+    rawMatchCount,
+    score:
+      keywordScore +
+      matchedKeywords.length * 2 +
+      titleTokenMatches.length * 2.5 +
+      (exactTitleMatch ? 12 : 0),
+  };
+}
+
+function buildPositionRole(rule: PositionRule, matchedKeywords: string[]): Role {
+  const label = rule.position;
+  const startsWithArticle = /^(a|an|the)\s/i.test(label);
+  const persona = startsWithArticle
+    ? label.charAt(0).toLowerCase() + label.slice(1)
+    : `a ${label}`;
+
+  return {
+    id: `position-rule-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+    label,
+    persona,
+    keywords: rule.words,
+    qualityCriteria: CUSTOM_ROLE_QUALITY_CRITERIA,
+    matchedKeywords,
+  };
+}
+
+// Subject gets stronger weight because it carries the domain; goal often describes output shape.
+function deriveRole(goal: string, subject: string, positionRules: PositionRule[]): Role {
   const goalText = goal.toLowerCase();
   const subjectText = subject.toLowerCase();
   let best: Role = ROLES.find((r) => r.id === "general")!;
   let bestScore = 0;
 
+  for (const rule of positionRules) {
+    const match = scoreRoleMatch(goalText, subjectText, rule.position, rule.words);
+
+    if (match.rawMatchCount >= 1 && match.score > bestScore) {
+      bestScore = match.score;
+      best = buildPositionRole(rule, match.matchedKeywords);
+    }
+  }
+
   for (const role of ROLES) {
     if (role.id === "general") continue;
-    const goalScore = role.keywords.filter((kw) => goalText.includes(kw)).length * 2;
-    const subjectScore = role.keywords.filter((kw) => subjectText.includes(kw)).length;
-    const score = goalScore + subjectScore;
-    if (score > bestScore) {
-      bestScore = score;
-      best = role;
+    const match = scoreRoleMatch(goalText, subjectText, role.label, role.keywords);
+    if (match.rawMatchCount >= 1 && match.score > bestScore) {
+      bestScore = match.score;
+      best = {
+        ...role,
+        matchedKeywords: match.matchedKeywords,
+      };
     }
   }
 
   return best;
 }
 
-// ─── Audience tier ────────────────────────────────────────────────────────────
-
-type AudienceTier = "beginner" | "expert" | "executive" | "general";
-
-const AUDIENCE_TIER_KEYWORDS: Record<Exclude<AudienceTier, "general">, string[]> = {
-  beginner: [
-    "beginner", "beginners", "novice", "newbie", "new to", "no experience", "starter",
-    "non-technical", "non technical", "layperson", "general public", "kids", "children",
-    "students", "first-time", "unfamiliar", "zero knowledge",
-  ],
-  expert: [
-    "expert", "experts", "senior", "advanced", "specialist", "professional", "developer",
-    "engineer", "researcher", "experienced", "technical", "practitioner", "phd",
-    "scientist", "architect", "lead",
-  ],
-  executive: [
-    "executive", "ceo", "cto", "cfo", "coo", "vp", "director", "head of", "c-suite",
-    "c suite", "leadership", "board", "investor", "stakeholder", "decision maker",
-    "manager", "management",
-  ],
-};
-
-// expert > executive > beginner when multiple match
-function detectAudienceTier(audience: string): AudienceTier {
-  const text = audience.toLowerCase();
-  for (const tier of ["expert", "executive", "beginner"] as const) {
-    if (AUDIENCE_TIER_KEYWORDS[tier].some((kw) => text.includes(kw))) return tier;
-  }
-  return "general";
-}
-
-const AUDIENCE_TIER_INSTRUCTIONS: Record<AudienceTier, string> = {
-  beginner:  "Use simple, jargon-free language. Define any technical terms you use. Use analogies to everyday experience where helpful.",
-  expert:    "Assume domain-level expertise. Skip foundational explanations. Use precise technical language and go straight to depth.",
-  executive: "Be brief and outcome-focused. Lead with the bottom line. Use business-level framing — implications, risks, decisions — not implementation details.",
-  general:   "",
-};
-
 // ─── Output format ────────────────────────────────────────────────────────────
 
-const OUTPUT_FORMAT_IDS = ["auto", "email", "blog", "social", "code", "summary", "plan"] as const;
+const OUTPUT_FORMAT_IDS = [
+  "auto",
+  "email",
+  "blog",
+  "social",
+  "code",
+  "summary",
+  "plan",
+  "table",
+  "checklist",
+  "custom",
+] as const;
 type OutputFormat = (typeof OUTPUT_FORMAT_IDS)[number];
 
 const FORMAT_META: Record<OutputFormat, { label: string; icon: React.ReactNode }> = {
-  auto:    { label: "Auto-detect", icon: <Sparkles className="h-3.5 w-3.5" /> },
-  email:   { label: "Email",       icon: <Mail className="h-3.5 w-3.5" /> },
-  blog:    { label: "Blog Post",   icon: <BookOpen className="h-3.5 w-3.5" /> },
-  social:  { label: "Social Post", icon: <Hash className="h-3.5 w-3.5" /> },
-  code:    { label: "Code",        icon: <Code2 className="h-3.5 w-3.5" /> },
-  summary: { label: "Summary",     icon: <AlignLeft className="h-3.5 w-3.5" /> },
-  plan:    { label: "Action Plan", icon: <ClipboardList className="h-3.5 w-3.5" /> },
+  auto: { label: "Auto-detect", icon: <Sparkles className="h-3.5 w-3.5" /> },
+  email: { label: "Email", icon: <Mail className="h-3.5 w-3.5" /> },
+  blog: { label: "Blog Post", icon: <BookOpen className="h-3.5 w-3.5" /> },
+  social: { label: "Social Post", icon: <Hash className="h-3.5 w-3.5" /> },
+  code: { label: "Code", icon: <Code2 className="h-3.5 w-3.5" /> },
+  summary: { label: "Summary", icon: <AlignLeft className="h-3.5 w-3.5" /> },
+  plan: { label: "Action Plan", icon: <ClipboardList className="h-3.5 w-3.5" /> },
+  table: { label: "Table", icon: <AlignLeft className="h-3.5 w-3.5" /> },
+  checklist: { label: "Checklist", icon: <Check className="h-3.5 w-3.5" /> },
+  custom: { label: "Custom", icon: <PencilLine className="h-3.5 w-3.5" /> },
 };
 
 const FORMAT_AUTO_KEYWORDS: Partial<Record<OutputFormat, string[]>> = {
-  email:   ["email", "e-mail", "message to", "reply to", "subject line", "follow up", "follow-up", "cold outreach", "cover letter", "introduction email", "newsletter"],
-  blog:    ["blog", "article", "write about", "write up", "long-form", "guide", "how-to", "explainer", "tutorial post", "listicle", "editorial"],
-  social:  ["tweet", "twitter", "linkedin post", "instagram", "social media", "caption", "facebook post", "thread", "social post", "x post"],
-  code:    ["code", "function", "script", "component", "implement", "build a", "create a class", "write a program", "algorithm", "api endpoint", "sql query", "snippet"],
-  summary: ["summarize", "summary", "tldr", "tl;dr", "condense", "recap", "key points", "brief overview", "highlights"],
-  plan:    ["action plan", "action items", "next steps", "roadmap", "checklist", "to-do", "todo", "task list", "milestones", "implementation plan", "steps to", "project plan"],
+  email: ["email", "e-mail", "message to", "reply to", "subject line", "follow up", "follow-up", "cold outreach", "cover letter", "introduction email", "newsletter"],
+  blog: ["blog", "article", "write about", "write up", "long-form", "guide", "how-to", "explainer", "tutorial post", "listicle", "editorial"],
+  social: ["tweet", "twitter", "linkedin post", "instagram", "social media", "caption", "facebook post", "thread", "social post", "x post", "reel caption", "youtube description"],
+  code: ["code", "function", "component", "implement", "build a", "create a class", "write a program", "algorithm", "api endpoint", "sql query", "snippet", "typescript", "javascript", "python"],
+  summary: ["summarize", "summary", "tldr", "tl;dr", "condense", "recap", "key points", "brief overview", "highlights", "extract main points"],
+  plan: ["action plan", "action items", "next steps", "roadmap", "to-do", "todo", "task list", "milestones", "implementation plan", "steps to", "project plan", "strategy plan"],
+  checklist: ["checklist", "check list", "audit list", "review list", "things to check", "step checklist", "requirements checklist"],
+  table: ["table", "comparison table", "compare", "matrix", "columns", "spreadsheet", "tabular", "pros and cons table"],
 };
 
-function autoDetectFormat(goal: string, extra: string): OutputFormat {
-  const text = `${goal} ${extra}`.toLowerCase();
+function scoreFormat(text: string, keywords: string[]) {
+  return keywords.reduce((score, keyword) => {
+    const normalized = keyword.toLowerCase();
+    return score + countOccurrences(text, normalized) * getKeywordWeight(normalized);
+  }, 0);
+}
+
+function autoDetectFormat(goal: string, subject: string, extra: string): OutputFormat {
+  const text = `${goal} ${subject} ${extra}`.toLowerCase();
+  let bestFormat: OutputFormat = "auto";
+  let bestScore = 0;
+
   for (const [fmt, keywords] of Object.entries(FORMAT_AUTO_KEYWORDS)) {
-    if (keywords.some((kw) => text.includes(kw))) return fmt as OutputFormat;
+    const score = scoreFormat(text, keywords);
+    if (score > bestScore) {
+      bestScore = score;
+      bestFormat = fmt as OutputFormat;
+    }
   }
-  return "auto";
+
+  return bestScore > 0 ? bestFormat : "auto";
 }
 
 const FORMAT_INSTRUCTIONS: Record<OutputFormat, string> = {
-  auto:    "",
-  email:   "Format this as a complete email with: subject line, greeting, concise body paragraphs, and a closing signature placeholder. Do not add commentary outside the email itself.",
-  blog:    "Format as a blog post with: an engaging headline (H1), a hook introduction, clearly labeled sections with subheadings (H2/H3), and a conclusion with a call to action.",
-  social:  "Format as a social media post: concise, high-impact, written for scanning. Include a strong opening line, relevant hashtags at the end if appropriate, platform-appropriate length.",
-  code:    "Format as clean, production-ready code: brief comment block explaining what it does, the implementation with inline comments on non-obvious logic, and usage examples.",
+  auto: "Use the most suitable general response format for the task. Do not force a specialized structure unless the user clearly asked for one.",
+  email: "Format this as a complete email with: subject line, greeting, concise body paragraphs, and a closing signature placeholder. Do not add commentary outside the email itself.",
+  blog: "Format as a blog post with: an engaging headline (H1), a hook introduction, clearly labeled sections with subheadings (H2/H3), and a conclusion with a call to action.",
+  social: "Format as a social media post: concise, high-impact, written for scanning. Include a strong opening line, relevant hashtags at the end if appropriate, platform-appropriate length.",
+  code: "Format as clean, production-ready code: brief comment block explaining what it does, the implementation with inline comments on non-obvious logic, and usage examples.",
   summary: "Format as a structured summary: one-sentence TL;DR, then 3–5 key points as bullet items, then a one-sentence implication or takeaway.",
-  plan:    "Format as an action plan: brief goal statement, numbered steps in priority order, each step with a time estimate and success criterion. Close with a risks/dependencies note.",
+  plan: "Format as an action plan: brief goal statement, numbered steps in priority order, each step with a time estimate and success criterion. Close with a risks/dependencies note.",
+  table: "Format as a clear Markdown table with concise column names, comparable rows, and short cell text. Add a one-sentence takeaway after the table if useful.",
+  checklist: "Format as a practical checklist with grouped items, clear pass/fail or done/not-done wording, and no unnecessary explanation.",
+  custom: "",
 };
 
 // ─── Length ───────────────────────────────────────────────────────────────────
@@ -358,7 +465,7 @@ const LENGTH_IDS = ["auto", "concise", "standard", "detailed"] as const;
 type Length = (typeof LENGTH_IDS)[number];
 
 const LENGTH_INSTRUCTIONS: Record<Length, string> = {
-  auto:     "",
+  auto:     "Use an appropriate general length for the task — complete enough to be useful, but not unnecessarily long.",
   concise:  "Keep the response concise — aim for brevity and directness. Cut everything that doesn't add value.",
   standard: "Use a standard length — enough to be complete and clear without being exhaustive.",
   detailed: "Provide a thorough, detailed response. Cover the topic comprehensively, including supporting reasoning, examples, and considerations.",
@@ -592,8 +699,8 @@ type Tone = (typeof TONES)[number];
 type FormData = {
   goal: string;
   subject: string;
-  audience: string;
   format: OutputFormat;
+  customFormat: string;
   length: Length;
   tones: Tone[];
   extra: string;
@@ -604,14 +711,13 @@ type FormData = {
 function buildPrompt(
   d: FormData,
   role: Role,
-  audienceTier: AudienceTier,
   effectiveFormat: OutputFormat,
   sensitivityFlags: SensitivityDomain[],
 ): string {
   const goal = d.goal.trim() || "[your request]";
   const subject = d.subject.trim() || "[topic]";
-  const audience = d.audience.trim() || "[audience]";
   const extra = d.extra.trim();
+  const customFormat = d.customFormat.trim();
   const toneStr = d.tones.length ? d.tones.join(", ") : "Professional";
 
   const lines: string[] = [];
@@ -627,13 +733,10 @@ function buildPrompt(
   lines.push(subject);
   lines.push("");
 
-  lines.push("## Target Audience");
-  lines.push(audience);
-  const tierInstruction = AUDIENCE_TIER_INSTRUCTIONS[audienceTier];
-  if (tierInstruction) lines.push(tierInstruction);
-  lines.push("");
-
-  const formatInstruction = FORMAT_INSTRUCTIONS[effectiveFormat];
+  const formatInstruction =
+    effectiveFormat === "custom" && customFormat
+      ? `Format the response exactly as requested by this custom format: ${customFormat}.`
+      : FORMAT_INSTRUCTIONS[effectiveFormat];
   if (formatInstruction) {
     lines.push("## Format Requirements");
     lines.push(formatInstruction);
@@ -661,7 +764,7 @@ function buildPrompt(
   role.qualityCriteria.forEach((c) => lines.push(`• ${c}`));
   lines.push("• Directly addresses the stated task");
   lines.push("• Stays focused on the subject");
-  lines.push("• Matches the intended audience");
+  lines.push("• Performs the requested action clearly and completely");
   lines.push("");
 
   if (sensitivityFlags.length > 0) {
@@ -686,11 +789,12 @@ function PromptBuilderPage() {
   // Text form state
   const [goal, setGoal] = useState("");
   const [subject, setSubject] = useState("");
-  const [audience, setAudience] = useState("");
   const [format, setFormat] = useState<OutputFormat>("auto");
+  const [customFormat, setCustomFormat] = useState("");
   const [length, setLength] = useState<Length>("auto");
   const [tones, setTones] = useState<Tone[]>(["Friendly", "Professional"]);
   const [extra, setExtra] = useState("");
+  const [positionRulesText, setPositionRulesText] = useState(DEFAULT_POSITION_RULES_TEXT);
 
   // Image form state
   const [imgSubject, setImgSubject] = useState("");
@@ -705,23 +809,44 @@ function PromptBuilderPage() {
   const [generated, setGenerated] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [launchHint, setLaunchHint] = useState<"chatgpt" | "gemini" | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
-  const data: FormData = { goal, subject, audience, format, length, tones, extra };
+  useEffect(() => {
+    const loadAdminRules = () => {
+      const savedRules = window.localStorage.getItem(POSITION_RULES_STORAGE_KEY);
+      setPositionRulesText(savedRules || DEFAULT_POSITION_RULES_TEXT);
+    };
 
-  const role = useMemo(() => deriveRole(goal, subject), [goal, subject]);
-  const audienceTier = useMemo(() => detectAudienceTier(audience), [audience]);
-  const detectedFormat = useMemo(() => autoDetectFormat(goal, extra), [goal, extra]);
+    loadAdminRules();
+    window.addEventListener("storage", loadAdminRules);
+    return () => window.removeEventListener("storage", loadAdminRules);
+  }, []);
+
+  const data: FormData = { goal, subject, format, customFormat, length, tones, extra };
+
+  const positionRules = useMemo(() => parsePositionRules(positionRulesText), [positionRulesText]);
+  const role = useMemo(
+    () => deriveRole(goal, subject, positionRules),
+    [goal, subject, positionRules]
+  );
+  const detectedFormat = useMemo(() => autoDetectFormat(goal, subject, extra), [goal, subject, extra]);
   const effectiveFormat: OutputFormat = format === "auto" ? detectedFormat : format;
   const sensitivityFlags = useMemo(() => detectSensitivityFlags(goal, subject), [goal, subject]);
+  const textRequiredFieldsReady = Boolean(goal.trim() && subject.trim());
 
   const toggleTone = (t: Tone) =>
-    setTones((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
+    setTones((prev) => {
+      if (prev.includes(t)) return prev.filter((x) => x !== t);
+      if (prev.length >= 3) return prev;
+      return [...prev, t];
+    });
 
   const handleModeSwitch = (m: "text" | "image") => {
     setMode(m);
     setGenerated(null);
     setCopied(false);
     setLaunchHint(null);
+    setFormError(null);
   };
 
   const imgData: ImageFormData = {
@@ -737,12 +862,17 @@ function PromptBuilderPage() {
 
   const handleGenerate = () => {
     if (mode === "text") {
-      setGenerated(buildPrompt(data, role, audienceTier, effectiveFormat, sensitivityFlags));
+      if (!textRequiredFieldsReady) {
+        setFormError("Action and topic are required to generate a useful prompt.");
+        return;
+      }
+      setGenerated(buildPrompt(data, role, effectiveFormat, sensitivityFlags));
     } else {
       setGenerated(buildImagePrompt(imgData));
     }
     setCopied(false);
     setLaunchHint(null);
+    setFormError(null);
   };
 
   const handleCopy = async () => {
@@ -820,40 +950,36 @@ function PromptBuilderPage() {
           <div className="mt-6 space-y-6">
             {mode === "text" ? (
               <>
-                {/* 1 — GOAL */}
-                <Field n={1} label="What do you want to create?">
+                {/* 1 — ACTION */}
+                <Field n={1} label="Action to perform *">
                   <input
                     value={goal}
-                    onChange={(e) => setGoal(e.target.value)}
-                    placeholder="Write a Facebook ad for my bakery"
+                    onChange={(e) => {
+                      setGoal(e.target.value);
+                      setFormError(null);
+                    }}
+                    placeholder="Write, explain, analyze, generate ideas, create a plan..."
                     className={inputCls}
                   />
                 </Field>
 
                 {/* 2 — SUBJECT */}
-                <Field n={2} label="What is the topic or subject?">
+                <Field n={2} label="What is the topic or subject? *">
                   <input
                     value={subject}
-                    onChange={(e) => setSubject(e.target.value)}
+                    onChange={(e) => {
+                      setSubject(e.target.value);
+                      setFormError(null);
+                    }}
                     placeholder="Fresh artisan breads and seasonal pastries"
                     className={inputCls}
                   />
                 </Field>
 
-                {/* 3 — AUDIENCE */}
-                <Field n={3} label="Who is this for?">
-                  <input
-                    value={audience}
-                    onChange={(e) => setAudience(e.target.value)}
-                    placeholder="Local families near Kathmandu"
-                    className={inputCls}
-                  />
-                </Field>
-
-                {/* 4 — FORMAT */}
-                <Field n={4} label="Output format">
-                  <div className="flex flex-wrap gap-2">
-                    {OUTPUT_FORMAT_IDS.map((fid) => {
+                {/* 3 — FORMAT */}
+                <Field n={3} label="Output format">
+	                  <div className="flex flex-wrap gap-2">
+	                    {OUTPUT_FORMAT_IDS.map((fid) => {
                       const m = FORMAT_META[fid];
                       const active = format === fid;
                       const showDetected = fid === "auto" && format === "auto" && detectedFormat !== "auto";
@@ -879,12 +1005,22 @@ function PromptBuilderPage() {
                           {active && fid !== "auto" && <Check className="h-3 w-3" />}
                         </button>
                       );
-                    })}
-                  </div>
-                </Field>
+	                    })}
+	                  </div>
+                  {format === "custom" && (
+                    <div className="mt-3">
+	                      <input
+	                        value={customFormat}
+	                        onChange={(e) => setCustomFormat(e.target.value)}
+	                        placeholder="Write your format, e.g. PRD, SOP, slides, FAQ, JSON, resume, job post..."
+	                        className={inputCls}
+	                      />
+                    </div>
+                  )}
+	                </Field>
 
-                {/* 5 — LENGTH */}
-                <Field n={5} label="Length">
+                {/* 4 — LENGTH */}
+                <Field n={4} label="Length">
                   <div className="flex flex-wrap gap-2">
                     {LENGTH_IDS.map((lid) => {
                       const active = length === lid;
@@ -911,11 +1047,12 @@ function PromptBuilderPage() {
                   </div>
                 </Field>
 
-                {/* 6 — TONE */}
-                <Field n={6} label="Tone">
-                  <div className="flex flex-wrap gap-2">
-                    {TONES.map((t) => (
-                      <button
+	                {/* 5 — TONE */}
+	                <Field n={5} label="Tone">
+	                  <div className="space-y-2">
+                    <div className="flex flex-wrap gap-2">
+	                    {TONES.map((t) => (
+	                      <button
                         key={t}
                         type="button"
                         onClick={() => toggleTone(t)}
@@ -928,13 +1065,15 @@ function PromptBuilderPage() {
                       >
                         {t}
                         {tones.includes(t) && <Check className="h-3.5 w-3.5" />}
-                      </button>
-                    ))}
-                  </div>
-                </Field>
+	                      </button>
+	                    ))}
+                    </div>
+                    <p className="text-xs text-slate-500">Choose up to 3 tones.</p>
+	                  </div>
+	                </Field>
 
-                {/* 7 — CONTEXT & CONSTRAINTS */}
-                <Field n={7} label="Context & constraints">
+                {/* 6 — CONTEXT & CONSTRAINTS */}
+                <Field n={6} label="Context & constraints">
                   <textarea
                     value={extra}
                     onChange={(e) => setExtra(e.target.value)}
@@ -943,6 +1082,7 @@ function PromptBuilderPage() {
                     className={`${inputCls} resize-y`}
                   />
                 </Field>
+
               </>
             ) : (
               <>
@@ -1117,8 +1257,12 @@ function PromptBuilderPage() {
 
             <button
               onClick={handleGenerate}
+              disabled={mode === "text" && !textRequiredFieldsReady}
               className={[
                 "mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl px-5 py-3.5 text-sm font-semibold text-white shadow-lg transition hover:brightness-110 active:scale-[0.99]",
+                mode === "text" && !textRequiredFieldsReady
+                  ? "cursor-not-allowed opacity-60"
+                  : "",
                 mode === "text"
                   ? "bg-gradient-to-r from-indigo-600 to-purple-600 shadow-indigo-500/20"
                   : "bg-gradient-to-r from-violet-600 to-fuchsia-600 shadow-violet-500/20",
@@ -1130,6 +1274,14 @@ function PromptBuilderPage() {
                 <><Wand2 className="h-4 w-4" /> Generate Image Prompt</>
               )}
             </button>
+            {mode === "text" && !textRequiredFieldsReady && (
+              <p className="text-center text-xs text-slate-500">
+                Required: action and topic.
+              </p>
+            )}
+            {formError && (
+              <p className="text-center text-xs font-medium text-rose-600">{formError}</p>
+            )}
           </div>
         </section>
 
@@ -1147,7 +1299,6 @@ function PromptBuilderPage() {
           <PreviewStage
             data={data}
             role={role}
-            audienceTier={audienceTier}
             effectiveFormat={effectiveFormat}
             sensitivityFlags={sensitivityFlags}
             detectedFormat={detectedFormat}
@@ -1165,19 +1316,23 @@ function PromptBuilderPage() {
 function PreviewStage({
   data,
   role,
-  audienceTier,
   effectiveFormat,
   sensitivityFlags,
   detectedFormat,
 }: {
   data: FormData;
   role: Role;
-  audienceTier: AudienceTier;
   effectiveFormat: OutputFormat;
   sensitivityFlags: SensitivityDomain[];
   detectedFormat: OutputFormat;
 }) {
-  const hasInput = data.goal || data.subject || data.audience;
+  const hasInput = data.goal || data.subject;
+  const formatLabel =
+    effectiveFormat === "custom" && data.customFormat.trim()
+      ? `Custom: ${data.customFormat.trim()}`
+      : effectiveFormat !== "auto"
+        ? FORMAT_META[effectiveFormat].label
+        : "Auto";
 
   return (
     <section className="space-y-6">
@@ -1186,15 +1341,12 @@ function PreviewStage({
         <h2 className="text-2xl font-bold text-slate-900">Live Preview</h2>
         <p className="mt-1 text-sm text-slate-500">Rules apply automatically as you type.</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <RulePill color="indigo">{role.label}</RulePill>
-          {audienceTier !== "general" && (
-            <RulePill color="violet">
-              {audienceTier === "beginner" ? "Beginner audience" : audienceTier === "expert" ? "Expert audience" : "Executive audience"}
-            </RulePill>
-          )}
+          <RulePill color={role.id.startsWith("position-rule") ? "green" : "indigo"}>
+            {role.id.startsWith("position-rule") ? `Position rule: ${role.label}` : role.label}
+          </RulePill>
           {effectiveFormat !== "auto" && (
             <RulePill color="purple">
-              {data.format === "auto" ? `Auto → ${FORMAT_META[detectedFormat].label}` : FORMAT_META[effectiveFormat].label}
+              {data.format === "auto" ? `Auto -> ${FORMAT_META[detectedFormat].label}` : formatLabel}
             </RulePill>
           )}
           {sensitivityFlags.map((domain) => (
@@ -1203,6 +1355,11 @@ function PreviewStage({
             </RulePill>
           ))}
         </div>
+        {role.matchedKeywords?.length ? (
+          <p className="mt-3 text-xs text-slate-500">
+            Matched words: {role.matchedKeywords.slice(0, 8).join(", ")}
+          </p>
+        ) : null}
       </div>
 
       {/* Summary */}
@@ -1215,14 +1372,13 @@ function PreviewStage({
         </div>
         {hasInput ? (
           <div className="divide-y divide-slate-100">
-            <SummaryRow icon={<Target className="h-4 w-4" />} label="Goal" value={data.goal || "—"} />
+            <SummaryRow icon={<Target className="h-4 w-4" />} label="Action" value={data.goal || "—"} />
             <SummaryRow icon={<Tag className="h-4 w-4" />} label="Subject" value={data.subject || "—"} />
-            <SummaryRow icon={<Users className="h-4 w-4" />} label="For" value={data.audience || "—"} />
-            <SummaryRow
-              icon={<PencilLine className="h-4 w-4" />}
-              label="Format"
-              value={effectiveFormat !== "auto" ? FORMAT_META[effectiveFormat].label : "Auto"}
-            />
+	            <SummaryRow
+	              icon={<PencilLine className="h-4 w-4" />}
+	              label="Format"
+	              value={formatLabel}
+	            />
             <SummaryRow
               icon={<Smile className="h-4 w-4" />}
               label="Tone"
